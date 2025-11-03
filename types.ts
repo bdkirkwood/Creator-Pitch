@@ -16,6 +16,7 @@ export interface Lead {
   prFirmName?: string;
   invoiceLink?: string;
   invoiceDueDate?: string; // ISO date string
+  agentSplitDisabled?: boolean;
 }
 
 export interface CreatorSettings {
@@ -27,7 +28,7 @@ export interface CreatorSettings {
   usp: string; // Unique Selling Proposition
   brandVoiceKeywords: string;
   professionalTitle: string;
-  platformHandles: string[];
+  socialMediaNetworks: string[];
   totalFollowers: number;
   demographics: {
     topCountries: string;
@@ -40,4 +41,17 @@ export interface CreatorSettings {
   formality: string;
   signatureStyle: string;
   emailPersonaExamples: string;
+  agentModeEnabled: boolean;
+  agentPercentage: number;
+}
+
+export interface TodoItem {
+  id: string;
+  subject: string;
+  description: string;
+  dueDate?: string; // ISO date string
+  isCompleted: boolean;
+  completedAt?: string; // ISO date string
+  isArchived: boolean;
+  order: number;
 }

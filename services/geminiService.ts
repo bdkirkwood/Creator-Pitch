@@ -64,6 +64,7 @@ export async function generatePitchEmail(lead: Lead, settings: CreatorSettings):
     - **My Name:** ${settings.fullName || 'The Creator'}
     - **My Title/Identity:** ${settings.professionalTitle}
     - **My Niche:** ${settings.niche}
+    - **My Primary Social Media Networks:** ${settings.socialMediaNetworks.join(', ')}
     - **My Brand Voice Keywords:** ${settings.brandVoiceKeywords}
     - **My Unique Selling Proposition:** ${settings.usp}
     - **My Bio/Pitch:** ${settings.bio}

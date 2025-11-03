@@ -1,15 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import { Lead, LeadStage } from '../types';
-import { LEAD_STAGES, STAGE_COLORS, ChevronLeftIcon, ChevronRightIcon } from '../constants';
+import { LEAD_STAGES, STAGE_COLORS, ChevronLeftIcon, ChevronRightIcon, DollarSignIcon } from '../constants';
 
 interface LeadCardProps {
   lead: Lead;
   onOpen: (lead: Lead) => void;
   onMoveStage: (leadId: string, direction: 'forward' | 'backward') => void;
   showFollowUpAlerts: boolean;
+  isMoving: boolean;
 }
 
-const LeadCard: React.FC<LeadCardProps> = ({ lead, onOpen, onMoveStage, showFollowUpAlerts }) => {
+const LeadCard: React.FC<LeadCardProps> = ({ lead, onOpen, onMoveStage, showFollowUpAlerts, isMoving }) => {
   const currentStageIndex = LEAD_STAGES.indexOf(lead.stage);
 
   const shouldShowAlert = useMemo(() => {
@@ -57,7 +58,7 @@ const LeadCard: React.FC<LeadCardProps> = ({ lead, onOpen, onMoveStage, showFoll
 
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-4 mb-4 transition-shadow hover:shadow-md">
+    <div className={`bg-white dark:bg-slate-800 rounded-lg shadow-sm p-4 mb-4 transition-shadow hover:shadow-md ${isMoving ? 'animate-highlight' : ''}`}>
       <div className="flex justify-between items-start">
         <div>
           <div className="flex items-center gap-2">
@@ -96,6 +97,18 @@ const LeadCard: React.FC<LeadCardProps> = ({ lead, onOpen, onMoveStage, showFoll
           </button>
         </div>
       </div>
+        {['Contract', 'Invoice', 'Paid'].includes(lead.stage) && (
+            <div className="mt-3 text-sm font-semibold flex items-center">
+            {lead.value > 0 ? (
+                <div className="flex items-center text-green-600 dark:text-green-400">
+                    <DollarSignIcon className="h-4 w-4 mr-1" />
+                    <span>{lead.value.toLocaleString()}</span>
+                </div>
+            ) : (
+                <span className="text-purple-600 dark:text-purple-400">In-Kind Collab</span>
+            )}
+            </div>
+        )}
       <p className="text-xs text-slate-400 mt-3">Last contact: {new Date(lead.lastContacted).toLocaleDateString()}</p>
       <button 
         onClick={() => onOpen(lead)}
@@ -112,9 +125,10 @@ interface LeadColumnProps {
   onOpenLead: (lead: Lead) => void;
   onMoveStage: (leadId: string, direction: 'forward' | 'backward') => void;
   showFollowUpAlerts: boolean;
+  movingLeadId: string | null;
 }
 
-const LeadColumn: React.FC<LeadColumnProps> = ({ stage, leads, onOpenLead, onMoveStage, showFollowUpAlerts }) => {
+const LeadColumn: React.FC<LeadColumnProps> = ({ stage, leads, onOpenLead, onMoveStage, showFollowUpAlerts, movingLeadId }) => {
   const color = STAGE_COLORS[stage];
   return (
     <div className="bg-gray-100 dark:bg-slate-800/50 rounded-lg p-3 w-full md:w-64 lg:w-80 flex-shrink-0 h-full flex flex-col">
@@ -124,7 +138,7 @@ const LeadColumn: React.FC<LeadColumnProps> = ({ stage, leads, onOpenLead, onMov
       </div>
       <div className="flex-grow overflow-y-auto pr-1">
         {leads.map(lead => (
-          <LeadCard key={lead.id} lead={lead} onOpen={onOpenLead} onMoveStage={onMoveStage} showFollowUpAlerts={showFollowUpAlerts} />
+          <LeadCard key={lead.id} lead={lead} onOpen={onOpenLead} onMoveStage={onMoveStage} showFollowUpAlerts={showFollowUpAlerts} isMoving={lead.id === movingLeadId} />
         ))}
       </div>
     </div>
@@ -137,9 +151,10 @@ interface LeadBoardProps {
   onOpenLead: (lead: Lead) => void;
   onMoveStage: (leadId: string, direction: 'forward' | 'backward') => void;
   showFollowUpAlerts: boolean;
+  movingLeadId: string | null;
 }
 
-const LeadBoard: React.FC<LeadBoardProps> = ({ leads, onOpenLead, onMoveStage, showFollowUpAlerts }) => {
+const LeadBoard: React.FC<LeadBoardProps> = ({ leads, onOpenLead, onMoveStage, showFollowUpAlerts, movingLeadId }) => {
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
 
   const handlePrevStage = () => {
@@ -154,7 +169,7 @@ const LeadBoard: React.FC<LeadBoardProps> = ({ leads, onOpenLead, onMoveStage, s
   const mobileNavColor = STAGE_COLORS[currentStageForMobileNav];
 
   return (
-    <main className="flex-grow p-4 md:p-6 flex flex-col">
+    <main className="flex-grow p-4 md:p-6 flex flex-col h-full">
       {/* Mobile navigation */}
       <div className="md:hidden mb-4 flex-shrink-0">
         <div className="flex justify-between items-center bg-gray-100 dark:bg-slate-800/50 p-2 rounded-lg">
@@ -192,7 +207,7 @@ const LeadBoard: React.FC<LeadBoardProps> = ({ leads, onOpenLead, onMoveStage, s
         <div className="hidden md:flex h-full space-x-4 overflow-x-auto pb-4 custom-scrollbar">
           {LEAD_STAGES.map(stage => {
             const stageLeads = leads.filter(lead => lead.stage === stage);
-            return <LeadColumn key={stage} stage={stage} leads={stageLeads} onOpenLead={onOpenLead} onMoveStage={onMoveStage} showFollowUpAlerts={showFollowUpAlerts} />;
+            return <LeadColumn key={stage} stage={stage} leads={stageLeads} onOpenLead={onOpenLead} onMoveStage={onMoveStage} showFollowUpAlerts={showFollowUpAlerts} movingLeadId={movingLeadId} />;
           })}
         </div>
 
@@ -203,7 +218,7 @@ const LeadBoard: React.FC<LeadBoardProps> = ({ leads, onOpenLead, onMoveStage, s
               const stageLeads = leads.filter(lead => lead.stage === stage);
               return (
                 <div key={stage} className="w-full flex-shrink-0 h-full p-0.5">
-                  <LeadColumn stage={stage} leads={stageLeads} onOpenLead={onOpenLead} onMoveStage={onMoveStage} showFollowUpAlerts={showFollowUpAlerts} />
+                  <LeadColumn stage={stage} leads={stageLeads} onOpenLead={onOpenLead} onMoveStage={onMoveStage} showFollowUpAlerts={showFollowUpAlerts} movingLeadId={movingLeadId} />
                 </div>
               );
             })}
