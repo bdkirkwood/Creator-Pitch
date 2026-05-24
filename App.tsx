@@ -100,6 +100,17 @@ const LeadDetailModal: React.FC<{
 
   const handleModalContentClick = (e: React.MouseEvent) => e.stopPropagation();
 
+if (isLoading) {
+  return (
+    <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-slate-900">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+        <p className="text-slate-500 dark:text-slate-400 text-sm">Loading your pipeline...</p>
+      </div>
+    </div>
+  );
+}
+    
   return (
     <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-fade-in-scale-up" onClick={handleModalContentClick}>
@@ -323,10 +334,28 @@ const AccordionItem: React.FC<{ title: string, children: React.ReactNode }> = ({
 
 
 function App() {
-  const [leads, setLeads] = useState<Lead[]>(loadLeads);
-  const [creatorSettings, setCreatorSettings] = useState<CreatorSettings>(loadSettings);
-  const [todos, setTodos] = useState<TodoItem[]>(loadTodos);
-  const [showOnboarding, setShowOnboarding] = useState(!isOnboardingComplete());
+const [leads, setLeads] = useState<Lead[]>([]);
+const [creatorSettings, setCreatorSettings] = useState<CreatorSettings>(initialCreatorSettings);
+const [todos, setTodos] = useState<TodoItem[]>([]);
+const [showOnboarding, setShowOnboarding] = useState(false);
+const [isLoading, setIsLoading] = useState(true);
+
+useEffect(() => {
+  const init = async () => {
+    const [loadedLeads, loadedSettings, loadedTodos, onboardingDone] = await Promise.all([
+      loadLeads(),
+      loadSettings(),
+      loadTodos(),
+      isOnboardingComplete(),
+    ]);
+    setLeads(loadedLeads);
+    setCreatorSettings(loadedSettings);
+    setTodos(loadedTodos);
+    setShowOnboarding(!onboardingDone);
+    setIsLoading(false);
+  };
+  init();
+}, []);
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
@@ -353,24 +382,26 @@ function App() {
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<'idle' | 'saved'>('idle');
   const isInitialSettingsLoad = useRef(true);
   
-  useEffect(() => {
-    saveLeads(leads);
-  }, [leads]);
+useEffect(() => {
+  if (!isLoading) saveLeads(leads);
+}, [leads, isLoading]);
 
-  useEffect(() => {
-    if (isInitialSettingsLoad.current) {
-        isInitialSettingsLoad.current = false;
-        return;
-    }
+useEffect(() => {
+  if (isInitialSettingsLoad.current) {
+    isInitialSettingsLoad.current = false;
+    return;
+  }
+  if (!isLoading) {
     saveSettings(creatorSettings);
     setSettingsSaveStatus('saved');
     const timer = setTimeout(() => setSettingsSaveStatus('idle'), 2000);
     return () => clearTimeout(timer);
-  }, [creatorSettings]);
+  }
+}, [creatorSettings, isLoading]);
 
-  useEffect(() => {
-    saveTodos(todos);
-  }, [todos]);
+useEffect(() => {
+  if (!isLoading) saveTodos(todos);
+}, [todos, isLoading]);
 
   useEffect(() => {
     const checkScreenSize = () => {
