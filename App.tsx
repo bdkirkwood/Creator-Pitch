@@ -7,7 +7,7 @@ import { LEAD_STAGES, PlusIcon, SettingsIcon, ArchiveIcon, DuplicateIcon, MailIc
 import { getLeadSummary, generatePitchEmail, generateInvoiceReminderEmail } from './services/geminiService';
 import { loadLeads, saveLeads, loadSettings, saveSettings, clearAllData, initialCreatorSettings, initialCreatorSettings, isOnboardingComplete, setOnboardingComplete, loadTodos, saveTodos } from './services/storageService';
 
-const linkify = (text: string) => {
+const linkify = (text: string | undefined | null) => {
     if (!text) return '';
     const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
     // Basic email regex to avoid complex validation, just looks for string@string.string
@@ -189,7 +189,7 @@ if (isLoading) {
 
             <div className="mb-6">
               <h3 className="font-semibold text-sm text-slate-500 dark:text-slate-400 mb-2">Notes</h3>
-              <div className="p-3 bg-gray-100 dark:bg-slate-700/50 rounded-lg whitespace-pre-wrap break-words min-h-[50px] text-sm" dangerouslySetInnerHTML={{ __html: linkify(lead.notes) }} />
+              <div className="p-3 bg-gray-100 dark:bg-slate-700/50 rounded-lg whitespace-pre-wrap break-words min-h-[50px] text-sm" dangerouslySetInnerHTML={{ __html: linkify(lead.notes || '') }} />
             </div>
 
           <div className="space-y-8">
