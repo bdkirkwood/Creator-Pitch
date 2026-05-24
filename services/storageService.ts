@@ -111,11 +111,29 @@ export const setOnboardingComplete = async (): Promise<void> => {
  
 // --------------- Leads ---------------
  
+const sanitizeLead = (lead: any): Lead => ({
+  id: lead.id ?? '',
+  companyName: lead.companyName ?? '',
+  contactName: lead.contactName ?? '',
+  email: lead.email ?? '',
+  phone: lead.phone ?? '',
+  stage: lead.stage ?? 'Lead',
+  value: Number(lead.value) || 0,
+  lastContacted: lead.lastContacted ?? new Date().toISOString(),
+  notes: lead.notes ?? '',
+  isArchived: lead.isArchived === true || lead.isArchived === 'true' || lead.isArchived === 'TRUE',
+  originalStage: lead.originalStage || undefined,
+  emailThreadLink: lead.emailThreadLink || undefined,
+  prFirmName: lead.prFirmName || undefined,
+  invoiceLink: lead.invoiceLink || undefined,
+  invoiceDueDate: lead.invoiceDueDate || undefined,
+  agentSplitDisabled: lead.agentSplitDisabled === true || lead.agentSplitDisabled === 'true' || lead.agentSplitDisabled === 'TRUE',
+});
+
 export const loadLeads = async (): Promise<Lead[]> => {
   try {
     const leads = await call<Lead[]>('getLeads');
-    if (leads && leads.length > 0) return leads;
-    // First run — seed with sample data so onboarding board isn't empty
+    if (leads && leads.length > 0) return leads.map(sanitizeLead);
     return initialLeads;
   } catch (err) {
     console.error('[storageService] loadLeads failed', err);
