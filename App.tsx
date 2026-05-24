@@ -421,13 +421,13 @@ useEffect(() => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleOnboardingComplete = useCallback(() => {
-    setOnboardingComplete();
-    setShowOnboarding(false);
-    // After onboarding, load the sample leads for the user to play with.
-    setLeads(loadLeads());
-    setTodos(loadTodos());
-  }, []);
+const handleOnboardingComplete = useCallback(async () => {
+  await setOnboardingComplete();
+  setShowOnboarding(false);
+  const [leads, todos] = await Promise.all([loadLeads(), loadTodos()]);
+  setLeads(leads);
+  setTodos(todos);
+}, []);
 
 
   const activeLeads = useMemo(() => {
