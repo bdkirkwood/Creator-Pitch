@@ -1,51 +1,28 @@
 import { Lead, CreatorSettings, TodoItem } from '../types';
  
-// ============================================================
-// Creator Pitch — Storage Service (Google Sheets backend)
-// ============================================================
-// Set VITE_APPS_SCRIPT_URL in your .env file to your deployed
-// Google Apps Script Web App URL.
-// ============================================================
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+// Set APPS_SCRIPT_URL in your .env.local file:
+//   APPS_SCRIPT_URL=https://script.google.com/macros/s/<YOUR_SCRIPT_ID>/exec
+//
+// The Apps Script web app must implement:
+//   GET  ?action=getLeads      → JSON Lead[]
+//   GET  ?action=getSettings   → JSON CreatorSettings
+//   GET  ?action=getTodos      → JSON TodoItem[]
+//   POST body: { action: 'saveLeads',    leads: Lead[] }
+//   POST body: { action: 'saveSettings', settings: CreatorSettings }
+//   POST body: { action: 'saveTodos',    todos: TodoItem[] }
+//   POST body: { action: 'clearData' }
+// ---------------------------------------------------------------------------
+const APPS_SCRIPT_URL: string = process.env.APPS_SCRIPT_URL ?? '';
  
-const SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL as string;
+// Onboarding flag stays in localStorage — it's device-specific, not user data.
+const ONBOARDING_STORAGE_KEY = 'creator-pitch-onboarding-complete';
  
-if (!SCRIPT_URL) {
-  console.error(
-    '[storageService] VITE_APPS_SCRIPT_URL is not set. ' +
-    'Add it to your .env file and restart the dev server.'
-  );
-}
- 
-// --------------- Core fetch helper ---------------
- 
-async function call<T>(action: string, data?: unknown): Promise<T> {
-  const params = new URLSearchParams({ action });
-  if (data !== undefined) {
-    params.append('data', JSON.stringify(data));
-  }
- 
-  const url = `${SCRIPT_URL}?${params.toString()}`;
- 
-  // Apps Script Web Apps require a GET even for mutations,
-  // because POST with CORS requires a preflight that Apps Script doesn't support.
-  const res = await fetch(url, { redirect: 'follow' });
- 
-  if (!res.ok) {
-    throw new Error(`[storageService] HTTP ${res.status} for action "${action}"`);
-  }
- 
-  const json = (await res.json()) as T & { error?: string };
- 
-  if ('error' in json && json.error) {
-    throw new Error(`[storageService] Script error for "${action}": ${json.error}`);
-  }
- 
-  return json;
-}
- 
-// --------------- Default / initial data ---------------
-// Kept here so the onboarding flow still works exactly as before.
- 
+// ---------------------------------------------------------------------------
+// Default / seed data
+// ---------------------------------------------------------------------------
 const daysFromNow = (days: number) =>
   new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
  
@@ -56,6 +33,8 @@ const initialLeads: Lead[] = [
   { id: '4', companyName: 'Tech Forward', contactName: 'Sarah Kim', email: 'sarah@techforward.io', phone: '456-789-0123', stage: 'Negotiation', value: 120000, lastContacted: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), notes: 'Negotiating terms. Wants a 10% discount.', isArchived: false },
   { id: '5', companyName: 'Global Corp', contactName: 'Michael Brown', email: 'michael@global.corp', phone: '567-890-1234', stage: 'Paid', value: 95000, lastContacted: new Date().toISOString(), notes: 'Contract signed. Project kickoff next month.', isArchived: false },
   { id: '6', companyName: 'Market Makers', contactName: 'Jessica Williams', email: 'jess@marketmakers.com', phone: '678-901-2345', stage: 'Lost', value: 60000, lastContacted: '2023-10-18T12:00:00Z', notes: 'Chose a competitor. Budget constraints cited.', isArchived: false },
+  { id: '7', companyName: 'Archived Biz', contactName: 'Old Contact', email: 'old@contact.com', phone: '789-012-3456', stage: 'Lost', value: 20000, lastContacted: '2022-01-01T12:00:00Z', notes: 'Deal went cold a long time ago.', isArchived: true, originalStage: 'Negotiation' },
+  { id: '8', companyName: 'Past Due Payments', contactName: 'John Doe', email: 'john@pastdue.com', phone: '890-123-4567', stage: 'Invoice', value: 15000, lastContacted: daysFromNow(-30), notes: 'Invoice sent last month.', isArchived: false, invoiceLink: 'https://quickbooks.intuit.com/invoice/67890', invoiceDueDate: daysFromNow(-5) },
 ];
  
 export const initialCreatorSettings: CreatorSettings = {
@@ -87,120 +66,148 @@ export const initialCreatorSettings: CreatorSettings = {
 const initialTodos: TodoItem[] = [
   { id: 't1', subject: 'Follow up with Innovate Inc.', description: 'Send them the revised contract.', dueDate: daysFromNow(2), isCompleted: false, isArchived: false, order: 1 },
   { id: 't2', subject: 'Prepare pitch deck for Solutions Co.', description: 'Include new case studies and testimonials.', isCompleted: false, isArchived: false, order: 2 },
+  { id: 't3', subject: 'Send thank you note to Michael Brown', description: 'Thank him for the quick payment and successful collaboration.', isCompleted: true, completedAt: daysFromNow(-1), isArchived: false, order: 3 },
+  { id: 't4', subject: 'Research new brands in the tech niche', description: '', isCompleted: false, isArchived: true, order: 4 },
 ];
  
-// --------------- Onboarding ---------------
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
  
-export const isOnboardingComplete = async (): Promise<boolean> => {
+/**
+ * Performs a GET request to the Apps Script web app.
+ * Returns the parsed JSON body, or null on any error / missing URL.
+ */
+async function sheetsGet<T>(action: string): Promise<T | null> {
+  if (!APPS_SCRIPT_URL) return null;
   try {
-    const res = await call<{ complete: boolean }>('getOnboarding');
-    return res.complete;
+    const res = await fetch(
+      `${APPS_SCRIPT_URL}?action=${encodeURIComponent(action)}&t=${Date.now()}`
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    return (await res.json()) as T;
   } catch (err) {
-    console.error('[storageService] isOnboardingComplete failed', err);
+    console.error(`[storageService] GET "${action}" failed:`, err);
+    return null;
+  }
+}
+ 
+/**
+ * Performs a POST request to the Apps Script web app.
+ * Uses Content-Type text/plain to avoid the CORS preflight that
+ * application/json would trigger against an Apps Script endpoint.
+ */
+async function sheetsPost(body: Record<string, unknown>): Promise<void> {
+  if (!APPS_SCRIPT_URL) return;
+  try {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  } catch (err) {
+    console.error(`[storageService] POST "${body.action}" failed:`, err);
+  }
+}
+ 
+// ---------------------------------------------------------------------------
+// Onboarding  (localStorage — device-specific flag, not synced to Sheets)
+// ---------------------------------------------------------------------------
+ 
+/** Returns true if the user has completed the onboarding flow on this device. */
+export const isOnboardingComplete = (): boolean => {
+  try {
+    return localStorage.getItem(ONBOARDING_STORAGE_KEY) === 'true';
+  } catch {
     return false;
   }
 };
  
-export const setOnboardingComplete = async (): Promise<void> => {
+/** Marks the onboarding flow as complete on this device. */
+export const setOnboardingComplete = (): void => {
   try {
-    await call('setOnboarding');
-  } catch (err) {
-    console.error('[storageService] setOnboardingComplete failed', err);
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
+  } catch {
+    // Silently ignore (e.g. private-browsing storage quota exceeded)
   }
 };
  
-// --------------- Leads ---------------
+// ---------------------------------------------------------------------------
+// Leads
+// ---------------------------------------------------------------------------
  
-const sanitizeLead = (lead: any): Lead => ({
-  id: lead.id ?? '',
-  companyName: lead.companyName ?? '',
-  contactName: lead.contactName ?? '',
-  email: lead.email ?? '',
-  phone: lead.phone ?? '',
-  stage: lead.stage ?? 'Lead',
-  value: Number(lead.value) || 0,
-  lastContacted: lead.lastContacted ?? new Date().toISOString(),
-  notes: lead.notes ?? '',
-  isArchived: lead.isArchived === true || lead.isArchived === 'true' || lead.isArchived === 'TRUE',
-  originalStage: lead.originalStage || undefined,
-  emailThreadLink: lead.emailThreadLink || undefined,
-  prFirmName: lead.prFirmName || undefined,
-  invoiceLink: lead.invoiceLink || undefined,
-  invoiceDueDate: lead.invoiceDueDate || undefined,
-  agentSplitDisabled: lead.agentSplitDisabled === true || lead.agentSplitDisabled === 'true' || lead.agentSplitDisabled === 'TRUE',
-});
-
+/**
+ * Loads leads from Google Sheets via Apps Script.
+ * Falls back to seed data (post-onboarding) or an empty array if the URL is
+ * not configured or the request fails.
+ */
 export const loadLeads = async (): Promise<Lead[]> => {
-  try {
-    const leads = await call<Lead[]>('getLeads');
-    if (leads && leads.length > 0) return leads.map(sanitizeLead);
-    return initialLeads;
-  } catch (err) {
-    console.error('[storageService] loadLeads failed', err);
-    return [];
-  }
+  const data = await sheetsGet<Lead[]>('getLeads');
+  if (data !== null) return data;
+  return isOnboardingComplete() ? initialLeads : [];
 };
  
+/** Persists the current leads array to Google Sheets. */
 export const saveLeads = async (leads: Lead[]): Promise<void> => {
-  try {
-    await call('saveLeads', leads);
-  } catch (err) {
-    console.error('[storageService] saveLeads failed', err);
-  }
+  await sheetsPost({ action: 'saveLeads', leads });
 };
  
-// --------------- Settings ---------------
+// ---------------------------------------------------------------------------
+// Creator Settings
+// ---------------------------------------------------------------------------
  
+/**
+ * Loads creator settings from Google Sheets.
+ * Falls back to sensible defaults if the request fails.
+ */
 export const loadSettings = async (): Promise<CreatorSettings> => {
-  try {
-    const settings = await call<CreatorSettings | null>('getSettings');
-    return settings ?? initialCreatorSettings;
-  } catch (err) {
-    console.error('[storageService] loadSettings failed', err);
-    return initialCreatorSettings;
-  }
+  const data = await sheetsGet<CreatorSettings>('getSettings');
+  return data ?? initialCreatorSettings;
 };
  
+/** Persists the creator settings object to Google Sheets. */
 export const saveSettings = async (settings: CreatorSettings): Promise<void> => {
-  try {
-    await call('saveSettings', settings);
-  } catch (err) {
-    console.error('[storageService] saveSettings failed', err);
-  }
+  await sheetsPost({ action: 'saveSettings', settings });
 };
  
-// --------------- Todos ---------------
+// ---------------------------------------------------------------------------
+// Todos
+// ---------------------------------------------------------------------------
  
+/**
+ * Loads todos from Google Sheets.
+ * Handles backwards-compatibility for items that predate the `order` field.
+ */
 export const loadTodos = async (): Promise<TodoItem[]> => {
-  try {
-    const todos = await call<TodoItem[]>('getTodos');
-    if (todos && todos.length > 0) {
-      return todos.map((todo, index) => ({
-        ...todo,
-        order: todo.order ?? index + 1,
-      }));
-    }
-    return initialTodos;
-  } catch (err) {
-    console.error('[storageService] loadTodos failed', err);
-    return [];
+  const data = await sheetsGet<TodoItem[]>('getTodos');
+  if (data !== null) {
+    return data.map((todo: TodoItem, index: number) => ({
+      ...todo,
+      order: todo.order ?? index + 1,
+    }));
   }
+  return isOnboardingComplete() ? initialTodos : [];
 };
  
+/** Persists the current todos array to Google Sheets. */
 export const saveTodos = async (todos: TodoItem[]): Promise<void> => {
-  try {
-    await call('saveTodos', todos);
-  } catch (err) {
-    console.error('[storageService] saveTodos failed', err);
-  }
+  await sheetsPost({ action: 'saveTodos', todos });
 };
  
-// --------------- Clear all ---------------
+// ---------------------------------------------------------------------------
+// Account reset
+// ---------------------------------------------------------------------------
  
+/**
+ * Clears all user data from Google Sheets and removes the onboarding flag
+ * so the app restarts fresh.
+ */
 export const clearAllData = async (): Promise<void> => {
+  await sheetsPost({ action: 'clearData' });
   try {
-    await call('clearAll');
-  } catch (err) {
-    console.error('[storageService] clearAllData failed', err);
+    localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+  } catch {
+    // ignore
   }
 };
