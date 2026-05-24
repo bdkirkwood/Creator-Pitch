@@ -5,7 +5,7 @@ import TodoList from './components/TodoList';
 import { Lead, LeadStage, CreatorSettings, TodoItem } from './types';
 import { LEAD_STAGES, PlusIcon, SettingsIcon, ArchiveIcon, DuplicateIcon, MailIcon, CopyIcon, EditIcon, DollarSignIcon, CalendarIcon, ExportIcon, ImportIcon, SearchIcon, XCircleIcon, QuestionMarkCircleIcon, ChevronRightIcon, TrashIcon, LogoutIcon, ListIcon, UnarchiveIcon, DotsVerticalIcon, CheckIcon } from './constants';
 import { getLeadSummary, generatePitchEmail, generateInvoiceReminderEmail } from './services/geminiService';
-import { loadLeads, saveLeads, loadSettings, saveSettings, clearAllData, initialCreatorSettings, isOnboardingComplete, setOnboardingComplete, loadTodos, saveTodos } from './services/storageService';
+import { loadLeads, saveLeads, loadSettings, saveSettings, clearAllData, initialCreatorSettings, initialCreatorSettings, isOnboardingComplete, setOnboardingComplete, loadTodos, saveTodos } from './services/storageService';
 
 const linkify = (text: string) => {
     if (!text) return '';
