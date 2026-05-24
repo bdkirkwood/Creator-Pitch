@@ -5,9 +5,9 @@ import TodoList from './components/TodoList';
 import { Lead, LeadStage, CreatorSettings, TodoItem } from './types';
 import { LEAD_STAGES, PlusIcon, SettingsIcon, ArchiveIcon, DuplicateIcon, MailIcon, CopyIcon, EditIcon, DollarSignIcon, CalendarIcon, ExportIcon, ImportIcon, SearchIcon, XCircleIcon, QuestionMarkCircleIcon, ChevronRightIcon, TrashIcon, LogoutIcon, ListIcon, UnarchiveIcon, DotsVerticalIcon, CheckIcon } from './constants';
 import { getLeadSummary, generatePitchEmail, generateInvoiceReminderEmail } from './services/geminiService';
-import { loadLeads, saveLeads, loadSettings, saveSettings, clearAllData, initialCreatorSettings, initialCreatorSettings, isOnboardingComplete, setOnboardingComplete, loadTodos, saveTodos } from './services/storageService';
+import { loadLeads, saveLeads, loadSettings, saveSettings, clearAllData, initialCreatorSettings, isOnboardingComplete, setOnboardingComplete, loadTodos, saveTodos } from './services/storageService';
 
-const linkify = (text: string | undefined | null) => {
+const linkify = (text: string) => {
     if (!text) return '';
     const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
     // Basic email regex to avoid complex validation, just looks for string@string.string
@@ -100,17 +100,6 @@ const LeadDetailModal: React.FC<{
 
   const handleModalContentClick = (e: React.MouseEvent) => e.stopPropagation();
 
-if (isLoading) {
-  return (
-    <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-slate-900">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mx-auto mb-4"></div>
-        <p className="text-slate-500 dark:text-slate-400 text-sm">Loading your pipeline...</p>
-      </div>
-    </div>
-  );
-}
-    
   return (
     <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-fade-in-scale-up" onClick={handleModalContentClick}>
@@ -189,7 +178,7 @@ if (isLoading) {
 
             <div className="mb-6">
               <h3 className="font-semibold text-sm text-slate-500 dark:text-slate-400 mb-2">Notes</h3>
-              <div className="p-3 bg-gray-100 dark:bg-slate-700/50 rounded-lg whitespace-pre-wrap break-words min-h-[50px] text-sm" dangerouslySetInnerHTML={{ __html: linkify(lead.notes || '') }} />
+              <div className="p-3 bg-gray-100 dark:bg-slate-700/50 rounded-lg whitespace-pre-wrap break-words min-h-[50px] text-sm" dangerouslySetInnerHTML={{ __html: linkify(lead.notes) }} />
             </div>
 
           <div className="space-y-8">
@@ -334,28 +323,15 @@ const AccordionItem: React.FC<{ title: string, children: React.ReactNode }> = ({
 
 
 function App() {
-const [leads, setLeads] = useState<Lead[]>([]);
-const [creatorSettings, setCreatorSettings] = useState<CreatorSettings>(initialCreatorSettings);
-const [todos, setTodos] = useState<TodoItem[]>([]);
-const [showOnboarding, setShowOnboarding] = useState(false);
-const [isLoading, setIsLoading] = useState(true);
-
-useEffect(() => {
-  const init = async () => {
-    const [loadedLeads, loadedSettings, loadedTodos, onboardingDone] = await Promise.all([
-      loadLeads(),
-      loadSettings(),
-      loadTodos(),
-      isOnboardingComplete(),
-    ]);
-    setLeads(loadedLeads);
-    setCreatorSettings(loadedSettings);
-    setTodos(loadedTodos);
-    setShowOnboarding(!onboardingDone);
-    setIsLoading(false);
-  };
-  init();
-}, []);
+  // State is intentionally initialised empty here.
+  // The useEffect below loads real data asynchronously from Google Sheets so
+  // we never pass an async function directly to useState (that would store a
+  // Promise in state instead of an array, causing a TypeError crash on render).
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [creatorSettings, setCreatorSettings] = useState<CreatorSettings>(initialCreatorSettings);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
@@ -380,28 +356,57 @@ useEffect(() => {
   const [addLeadState, setAddLeadState] = useState<'idle' | 'adding' | 'added'>('idle');
   const [editLeadState, setEditLeadState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<'idle' | 'saved'>('idle');
-  const isInitialSettingsLoad = useRef(true);
+  // Tracks whether the initial async data load has completed.
+  // Save effects must not fire before this is true, otherwise they would
+  // immediately overwrite real Sheets data with the empty initial state.
+  const isDataLoaded = useRef(false);
   
-useEffect(() => {
-  if (!isLoading) saveLeads(leads);
-}, [leads, isLoading]);
+  // ── Initial async data load ───────────────────────────────────────────────
+  // Runs once on mount. Awaits all three data sources in parallel, then sets
+  // the real state and marks the load as complete so save effects can fire.
+  useEffect(() => {
+    let cancelled = false;
+    const loadAll = async () => {
+      const [leadsData, settingsData, todosData] = await Promise.all([
+        loadLeads(),
+        loadSettings(),
+        loadTodos(),
+      ]);
+      if (cancelled) return;
+      setLeads(leadsData);
+      setCreatorSettings(settingsData);
+      setTodos(todosData);
+      setShowOnboarding(!isOnboardingComplete());
+      // Mark load complete *before* React processes the setState calls above,
+      // so the save effects (triggered by those state changes) see true here.
+      isDataLoaded.current = true;
+      setIsLoading(false);
+    };
+    loadAll();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-useEffect(() => {
-  if (isInitialSettingsLoad.current) {
-    isInitialSettingsLoad.current = false;
-    return;
-  }
-  if (!isLoading) {
-    saveSettings(creatorSettings);
+  // ── Save-on-change effects ────────────────────────────────────────────────
+  // Each effect guards with isDataLoaded so it is a no-op during the initial
+  // load. Errors are logged but not surfaced to keep the UX uninterrupted.
+  useEffect(() => {
+    if (!isDataLoaded.current) return;
+    saveLeads(leads).catch(err => console.error('[App] saveLeads failed:', err));
+  }, [leads]);
+
+  useEffect(() => {
+    if (!isDataLoaded.current) return;
+    saveSettings(creatorSettings).catch(err => console.error('[App] saveSettings failed:', err));
     setSettingsSaveStatus('saved');
     const timer = setTimeout(() => setSettingsSaveStatus('idle'), 2000);
     return () => clearTimeout(timer);
-  }
-}, [creatorSettings, isLoading]);
+  }, [creatorSettings]);
 
-useEffect(() => {
-  if (!isLoading) saveTodos(todos);
-}, [todos, isLoading]);
+  useEffect(() => {
+    if (!isDataLoaded.current) return;
+    saveTodos(todos).catch(err => console.error('[App] saveTodos failed:', err));
+  }, [todos]);
 
   useEffect(() => {
     const checkScreenSize = () => {
@@ -421,13 +426,15 @@ useEffect(() => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-const handleOnboardingComplete = useCallback(async () => {
-  await setOnboardingComplete();
-  setShowOnboarding(false);
-  const [leads, todos] = await Promise.all([loadLeads(), loadTodos()]);
-  setLeads(leads);
-  setTodos(todos);
-}, []);
+  const handleOnboardingComplete = useCallback(async () => {
+    setOnboardingComplete();
+    setShowOnboarding(false);
+    // After onboarding, load the sample leads for the user to play with.
+    // loadLeads / loadTodos are now async, so we must await them.
+    const [leadsData, todosData] = await Promise.all([loadLeads(), loadTodos()]);
+    setLeads(leadsData);
+    setTodos(todosData);
+  }, []);
 
 
   const activeLeads = useMemo(() => {
@@ -807,13 +814,14 @@ const handleOnboardingComplete = useCallback(async () => {
     reader.readAsText(file);
   };
 
-  const handleResetAccountData = () => {
-    clearAllData();
+  const handleResetAccountData = async () => {
+    await clearAllData(); // clearAllData is now async — must await it
     // After clearing storage, reset the React state to the initial default values.
+    isDataLoaded.current = false; // prevent save effects firing during reset
     setLeads([]);
     setCreatorSettings(initialCreatorSettings);
     setTodos([]);
-    
+    isDataLoaded.current = true;
     setIsResetConfirmModalOpen(false);
     setIsSettingsModalOpen(false);
     // Show onboarding again after a reset
@@ -904,6 +912,17 @@ const handleOnboardingComplete = useCallback(async () => {
           return newTodos;
       });
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="bg-gray-50 dark:bg-slate-900 h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-slate-500 dark:text-slate-400 text-sm">Loading your data…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gray-50 dark:bg-slate-900 h-screen text-slate-900 dark:text-slate-50 flex flex-col">
